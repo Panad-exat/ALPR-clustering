@@ -1,4 +1,10 @@
 # ==============================================================================
+# 📄 SCRIPT NAME: data_preprocessing_validation.R
+# 🎯 PURPOSE: Traffic Big Data Preprocessing, Data Validation, and Monthly Aggregation
+# 🛠️ SYSTEM: Automatic License Plate Recognition (ALPR) - Chalong Rat Expressway
+# ==============================================================================
+
+# ==============================================================================
 # BLOCK 1: SETUP & LIBRARIES (Optimized)
 # ==============================================================================
 print("⏳ Installing dependencies...")
