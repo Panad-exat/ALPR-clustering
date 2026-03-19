@@ -75,7 +75,7 @@ process_monthly_stats <- function(file_row) {
   if (!file.exists(temp_name)) return(NULL)
 
   # Fast Read (เลือกเฉพาะคอลัมน์ที่จำเป็นเพื่อประหยัด RAM)
-  # เราต้องการแค่ ทะเบียน (เพื่อนับ User) และ เวลา (เพื่อระบุเดือน)
+  # ต้องการแค่ ทะเบียน (เพื่อนับ User) และ เวลา (เพื่อระบุเดือน)
   dt <- tryCatch({ fread(temp_name, select = c("plate_number", "trxdatetime", "entry_date", "entry_time", "exit_time"), encoding = "UTF-8") },
                  error = function(e) { return(NULL) }) # ถ้าอ่านไม่ได้ข้ามเลย
 
@@ -112,7 +112,7 @@ process_monthly_stats <- function(file_row) {
   dt_clean <- dt_clean[!grepl("^UNKNOWN|^ไม่ทราบ|^ไม่มี|^TEST|^ADMIN|^VIP", plate_number, ignore.case = TRUE)]
 
   # Return แค่รายการทะเบียนที่ผ่านการกรอง พร้อมเดือน (ยังไม่นับ User ตรงนี้ เพราะรถ 1 คันอาจอยู่หลายไฟล์ในเดือนเดียวกัน)
-  # เราจะส่งรายการ (Month, plate_number) ออกไปนับรวมข้างนอก
+  # จะส่งรายการ (Month, plate_number) ออกไปนับรวมข้างนอก
   output_list <- list(
     raw_stats = raw_counts,           # ยอดรวมดิบ
     clean_logs = dt_clean[, .(Month, plate_number)] # รายการรถที่ผ่านการกรอง
