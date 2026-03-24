@@ -175,7 +175,7 @@ if (nrow(master_dt) > 0) {
     
     user_profiles <- master_dt[, .(
       Freq_Total = .N,
-      Freq_Per_Month = round(.N / 3, 2), # สมมติว่าเก็บข้อมูล 3 เดือน
+      Freq_Per_Month = round(.N / 3, 2), 
       Avg_Travel_Time = if(all(is.na(travel_duration))) NA_real_ else round(mean(travel_duration[travel_duration > 0 & travel_duration < 120], na.rm = TRUE), 2),
       ETC_Rate = round((sum(is_etc, na.rm=TRUE) / .N) * 100, 2),
       Peak_Usage_Rate = round((sum(is_peak, na.rm=TRUE) / .N) * 100, 2),
