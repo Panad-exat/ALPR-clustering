@@ -65,7 +65,7 @@ files_list <- drive_ls(as_id(folder_id$id), pattern = "\\.csv$", n_max = 50000)
 print(paste("✅ Ready to process:", nrow(files_list), "files"))
 
 # ------------------------------------------------------------------------------
-# BLOCK 4: FEATURE EXTRACTION (With UTF-16 Fix & Spot Check)
+# BLOCK 4: FEATURE EXTRACTION (Fixed Province Column)
 # ------------------------------------------------------------------------------
 process_features <- function(file_row) {
 
@@ -92,7 +92,7 @@ process_features <- function(file_row) {
   names(dt) <- tolower(names(dt))
   raw_row_count <- nrow(dt)
   
-  # Spot Check 1: นับแถวดิบ
+  # Spot Check
   cat(paste0("\n📄 ไฟล์: ", file_row$name))
   cat(paste0("\n   -> [1] อ่านไฟล์ได้: ", format(raw_row_count, big.mark=","), " แถว"))
 
@@ -109,7 +109,6 @@ process_features <- function(file_row) {
     dt[, t_ref := as.POSIXct(NA)]
   }
 
-  # Spot Check 2: เช็ควันที่เสีย
   dt_valid <- dt[!is.na(t_ref)]
   dropped_dates <- raw_row_count - nrow(dt_valid)
   if(dropped_dates > 0) cat(paste0("\n   ⚠️ หายไปตอนแปลงเวลา: ", format(dropped_dates, big.mark=","), " แถว"))
@@ -136,30 +135,31 @@ process_features <- function(file_row) {
      dt[, travel_duration := NA_real_]
   }
 
-  # Dynamic Column Detection (กัน Error ชื่อคอลัมน์เปลี่ยน)
+  # Dynamic Column Detection (เพิ่มคีย์เวิร์ดการหาจังหวัด)
   col_payment <- grep("payment|วิธี|ชำระ", names(dt), value = TRUE, ignore.case = TRUE)[1]
   col_brand <- grep("brand|ยี่ห้อ", names(dt), value = TRUE, ignore.case = TRUE)[1]
   col_type <- grep("type|class|ประเภท", names(dt), value = TRUE, ignore.case = TRUE)[1]
-  col_prov <- grep("province|จังหวัด", names(dt), value = TRUE, ignore.case = TRUE)[1]
+  col_prov <- grep("province|prov|จังหวัด", names(dt), value = TRUE, ignore.case = TRUE)[1]
   
   val_payment <- if(!is.na(col_payment)) dt[[col_payment]] else rep("CASH", nrow(dt))
-  val_brand <- if(!is.na(col_brand)) dt[[col_brand]] else rep("", nrow(dt))
-  val_type <- if(!is.na(col_type)) dt[[col_type]] else rep("", nrow(dt))
-  val_prov <- if(!is.na(col_prov)) dt[[col_prov]] else rep("", nrow(dt))
+  val_brand <- if(!is.na(col_brand)) dt[[col_brand]] else rep("UNKNOWN", nrow(dt))
+  val_type <- if(!is.na(col_type)) dt[[col_type]] else rep("UNKNOWN", nrow(dt))
+  val_prov <- if(!is.na(col_prov)) dt[[col_prov]] else rep("ไม่ระบุ", nrow(dt))
 
   dt[, is_etc := fifelse(grepl("ETC|EASY PASS|M-FLOW", toupper(val_payment)), 1, 0)]
   dt[, tier_score := get_tier_score(val_brand, val_type)]
   dt[, prov_group := get_province_group(val_prov)]
+  dt[, actual_province := val_prov] # เก็บชื่อจังหวัดตัวเต็มไว้
 
-  # ดึงเฉพาะคอลัมน์ที่จำเป็นออกไป
-  out_dt <- dt[, .(plate_number, is_peak, travel_duration, is_etc, tier_score, prov_group)]
+  # ดึงเฉพาะคอลัมน์ที่จำเป็นออกไป (เพิ่ม actual_province)
+  out_dt <- dt[, .(plate_number, actual_province, is_peak, travel_duration, is_etc, tier_score, prov_group)]
 
   file.remove(temp_name)
   return(out_dt)
 }
 
 # --- RUNNING LOOP ---
-print("🚀 เริ่มสกัดข้อมูลพฤติกรรม (Feature Engineering)...")
+print("\n🚀 เริ่มสกัดข้อมูลพฤติกรรม (Feature Engineering)...")
 all_features <- lapply(1:nrow(files_list), function(i) {
   process_features(files_list[i,])
 })
@@ -175,13 +175,13 @@ if (nrow(master_dt) > 0) {
     
     user_profiles <- master_dt[, .(
       Freq_Total = .N,
-      Freq_Per_Month = round(.N / 3, 2), 
+      Freq_Per_Month = round(.N / 3, 2), # สมมติว่าเก็บข้อมูล 3 เดือน
       Avg_Travel_Time = if(all(is.na(travel_duration))) NA_real_ else round(mean(travel_duration[travel_duration > 0 & travel_duration < 120], na.rm = TRUE), 2),
       ETC_Rate = round((sum(is_etc, na.rm=TRUE) / .N) * 100, 2),
       Peak_Usage_Rate = round((sum(is_peak, na.rm=TRUE) / .N) * 100, 2),
       Brand_Tier = max(tier_score, na.rm = TRUE),
-      Province_Group = max(prov_group, na.rm = TRUE)
-    ), by = .(plate_number)]
+      Province_Group = max(prov_group, na.rm = TRUE),
+    ), by = .(plate_number, actual_province)]
 
     # กรอง Outlier (ตัดรถวิ่งเกิน 2700 เที่ยว)
     user_profiles <- user_profiles[Freq_Total <= 2700]
