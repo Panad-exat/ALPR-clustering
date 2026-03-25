@@ -91,7 +91,7 @@ process_features <- function(file_row) {
 
   names(dt) <- tolower(names(dt))
   raw_row_count <- nrow(dt)
-  
+
   # Spot Check
   cat(paste0("\n📄 ไฟล์: ", file_row$name))
   cat(paste0("\n   -> [1] อ่านไฟล์ได้: ", format(raw_row_count, big.mark=","), " แถว"))
@@ -112,7 +112,7 @@ process_features <- function(file_row) {
   dt_valid <- dt[!is.na(t_ref)]
   dropped_dates <- raw_row_count - nrow(dt_valid)
   if(dropped_dates > 0) cat(paste0("\n   ⚠️ หายไปตอนแปลงเวลา: ", format(dropped_dates, big.mark=","), " แถว"))
-  
+
   dt <- dt_valid
   if(nrow(dt) == 0) { file.remove(temp_name); return(NULL) }
 
@@ -120,13 +120,13 @@ process_features <- function(file_row) {
   col_plate <- grep("plate|ทะเบียน", names(dt), value = TRUE, ignore.case = TRUE)[1]
   if (is.na(col_plate)) { file.remove(temp_name); return(NULL) }
   setnames(dt, col_plate, "plate_number")
-  
+
   dt <- dt[plate_number != "" & !is.na(plate_number)]
   dt <- dt[!grepl("^UNKNOWN|^ไม่ทราบ|^ไม่มี|^TEST|^ADMIN|^VIP", plate_number, ignore.case = TRUE)]
 
   # Feature Engineering (รายเที่ยว)
   dt[, is_peak := fcase(hour(t_ref) %in% c(6, 7, 8, 16, 17, 18), 1, default = 0)]
-  
+
   if("entry_time" %in% names(dt) & "exit_time" %in% names(dt)) {
      dt[, entry_t := parse_date_time(paste(entry_date, entry_time), orders = date_formats, quiet = TRUE)]
      dt[, exit_t := parse_date_time(exit_time, orders = date_formats, quiet = TRUE)]
@@ -140,7 +140,7 @@ process_features <- function(file_row) {
   col_brand <- grep("brand|ยี่ห้อ", names(dt), value = TRUE, ignore.case = TRUE)[1]
   col_type <- grep("type|class|ประเภท", names(dt), value = TRUE, ignore.case = TRUE)[1]
   col_prov <- grep("province|prov|จังหวัด", names(dt), value = TRUE, ignore.case = TRUE)[1]
-  
+
   val_payment <- if(!is.na(col_payment)) dt[[col_payment]] else rep("CASH", nrow(dt))
   val_brand <- if(!is.na(col_brand)) dt[[col_brand]] else rep("UNKNOWN", nrow(dt))
   val_type <- if(!is.na(col_type)) dt[[col_type]] else rep("UNKNOWN", nrow(dt))
@@ -172,7 +172,7 @@ master_dt <- rbindlist(all_features[!sapply(all_features, is.null)], fill = TRUE
 # ------------------------------------------------------------------------------
 if (nrow(master_dt) > 0) {
     cat("\n📊 กำลังสร้าง User Profiles สำหรับ SPSS...\n")
-    
+
     user_profiles <- master_dt[, .(
       Freq_Total = .N,
       Freq_Per_Month = round(.N / 3, 2), # สมมติว่าเก็บข้อมูล 3 เดือน
@@ -180,7 +180,7 @@ if (nrow(master_dt) > 0) {
       ETC_Rate = round((sum(is_etc, na.rm=TRUE) / .N) * 100, 2),
       Peak_Usage_Rate = round((sum(is_peak, na.rm=TRUE) / .N) * 100, 2),
       Brand_Tier = max(tier_score, na.rm = TRUE),
-      Province_Group = max(prov_group, na.rm = TRUE),
+      Province_Group = max(prov_group, na.rm = TRUE)
     ), by = .(plate_number, actual_province)]
 
     # กรอง Outlier (ตัดรถวิ่งเกิน 2700 เที่ยว)
@@ -193,7 +193,7 @@ if (nrow(master_dt) > 0) {
     # Save ลงเครื่อง
     output_filename <- "ALPR_User_Profiles_For_SPSS.csv"
     fwrite(user_profiles, output_filename)
-    
+
     # Upload ลง Google Drive
     cat("\n☁️ กำลังอัปโหลดไฟล์ผลลัพธ์กลับสู่ Google Drive...\n")
     drive_upload(
