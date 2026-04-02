@@ -3,7 +3,6 @@
 # 🎯 PURPOSE: Traffic Big Data Preprocessing, Data Validation, and Monthly Aggregation
 # 🛠️ SYSTEM: Automatic License Plate Recognition (ALPR) - Chalong Rat Expressway
 # ==============================================================================
-
 # ------------------------------------------------------------------------------
 # BLOCK 1: SETUP & LIBRARIES
 # ------------------------------------------------------------------------------
@@ -64,8 +63,9 @@ if(nrow(folder_id) == 0) stop("❌ Error: ไม่เจอ Folder!")
 files_list <- drive_ls(as_id(folder_id$id), pattern = "\\.csv$", n_max = 50000)
 print(paste("✅ Ready to process:", nrow(files_list), "files"))
 
+
 # ------------------------------------------------------------------------------
-# BLOCK 4: FEATURE EXTRACTION (Fixed Province Column)
+# BLOCK 4: FEATURE EXTRACTION 
 # ------------------------------------------------------------------------------
 process_features <- function(file_row) {
 
@@ -92,31 +92,11 @@ process_features <- function(file_row) {
   names(dt) <- tolower(names(dt))
   raw_row_count <- nrow(dt)
 
-  # Spot Check
   cat(paste0("\n📄 ไฟล์: ", file_row$name))
-  cat(paste0("\n   -> [1] อ่านไฟล์ได้: ", format(raw_row_count, big.mark=","), " แถว"))
+  cat(paste0("\n   -> อ่านไฟล์ได้: ", format(raw_row_count, big.mark=","), " แถว"))
 
-  # Date Parsing
-  date_formats <- c("ymd HMS", "dmy HMS", "d/m/Y H:M:S", "Y-m-d H:M:S", "d/m/Y H:M", "d-m-Y H:M:S", "dmY HM", "dbY HMS")
-
-  if ("trxdatetime" %in% names(dt)) {
-    dt[, t_ref := parse_date_time(trxdatetime, orders = date_formats, quiet=TRUE)]
-  } else if ("entry_date" %in% names(dt)) {
-    dt[, t_ref := parse_date_time(paste(entry_date, entry_time), orders = date_formats, quiet=TRUE)]
-  } else if ("exit_time" %in% names(dt)) {
-    dt[, t_ref := parse_date_time(exit_time, orders = date_formats, quiet=TRUE)]
-  } else {
-    dt[, t_ref := as.POSIXct(NA)]
-  }
-
-  dt_valid <- dt[!is.na(t_ref)]
-  dropped_dates <- raw_row_count - nrow(dt_valid)
-  if(dropped_dates > 0) cat(paste0("\n   ⚠️ หายไปตอนแปลงเวลา: ", format(dropped_dates, big.mark=","), " แถว"))
-
-  dt <- dt_valid
-  if(nrow(dt) == 0) { file.remove(temp_name); return(NULL) }
-
-  # Cleansing Plate
+  
+  # 🔴 1. Cleansing ทะเบียนรถ
   col_plate <- grep("plate|ทะเบียน", names(dt), value = TRUE, ignore.case = TRUE)[1]
   if (is.na(col_plate)) { file.remove(temp_name); return(NULL) }
   setnames(dt, col_plate, "plate_number")
@@ -124,18 +104,29 @@ process_features <- function(file_row) {
   dt <- dt[plate_number != "" & !is.na(plate_number)]
   dt <- dt[!grepl("^UNKNOWN|^ไม่ทราบ|^ไม่มี|^TEST|^ADMIN|^VIP", plate_number, ignore.case = TRUE)]
 
-  # Feature Engineering (รายเที่ยว)
-  dt[, is_peak := fcase(hour(t_ref) %in% c(6, 7, 8, 16, 17, 18), 1, default = 0)]
+  if(nrow(dt) == 0) { file.remove(temp_name); return(NULL) }
 
-  if("entry_time" %in% names(dt) & "exit_time" %in% names(dt)) {
-     dt[, entry_t := parse_date_time(paste(entry_date, entry_time), orders = date_formats, quiet = TRUE)]
-     dt[, exit_t := parse_date_time(exit_time, orders = date_formats, quiet = TRUE)]
-     dt[, travel_duration := as.numeric(difftime(exit_t, entry_t, units = "mins"))]
+  # 🔴 2. จัดการเวลาเร่งด่วน (Peak Hour) - แก้ไขปัญหาจุดทศนิยม
+  col_time <- grep("entry_time|เวลาเข้า", names(dt), value = TRUE, ignore.case = TRUE)[1]
+  if (!is.na(col_time)) {
+    # ดึงเฉพาะ "ตัวเลขชั่วโมง" ที่อยู่หน้าจุด (.) หรือ โคลอน (:) มาเป็นตัวเลข
+    dt[, hour_of_day := as.numeric(sub("[:\\.].*$", "", as.character(get(col_time))))]
+    # กำหนด Peak: 6, 7, 8 โมงเช้า และ 16, 17, 18 โมงเย็น
+    dt[, is_peak := fcase(hour_of_day %in% c(6, 7, 8, 16, 17, 18), 1, default = 0)]
   } else {
-     dt[, travel_duration := NA_real_]
+    dt[, is_peak := 0]
   }
 
-  # Dynamic Column Detection (เพิ่มคีย์เวิร์ดการหาจังหวัด)
+  # 🔴 3. ดึงระยะเวลาเดินทาง (Travel Time) 
+  col_travel <- grep("travel|นาที|เวลาเดินทาง", names(dt), value = TRUE, ignore.case = TRUE)[1]
+  if (!is.na(col_travel)) {
+    # คลีนข้อมูลตัวอักษรที่อาจปนมา (ถ้ามี) ให้เหลือแต่ตัวเลข
+    dt[, travel_duration := as.numeric(gsub("[^0-9.]", "", as.character(get(col_travel))))]
+  } else {
+    dt[, travel_duration := NA_real_]
+  }
+
+  # 🔴 4. Dynamic Column Detection สำหรับตัวแปรอื่นๆ
   col_payment <- grep("payment|วิธี|ชำระ", names(dt), value = TRUE, ignore.case = TRUE)[1]
   col_brand <- grep("brand|ยี่ห้อ", names(dt), value = TRUE, ignore.case = TRUE)[1]
   col_type <- grep("type|class|ประเภท", names(dt), value = TRUE, ignore.case = TRUE)[1]
@@ -149,9 +140,9 @@ process_features <- function(file_row) {
   dt[, is_etc := fifelse(grepl("ETC|EASY PASS|M-FLOW", toupper(val_payment)), 1, 0)]
   dt[, tier_score := get_tier_score(val_brand, val_type)]
   dt[, prov_group := get_province_group(val_prov)]
-  dt[, actual_province := val_prov] # เก็บชื่อจังหวัดตัวเต็มไว้
+  dt[, actual_province := val_prov] 
 
-  # ดึงเฉพาะคอลัมน์ที่จำเป็นออกไป (เพิ่ม actual_province)
+  # ดึงเฉพาะคอลัมน์ที่จำเป็นออกไป
   out_dt <- dt[, .(plate_number, actual_province, is_peak, travel_duration, is_etc, tier_score, prov_group)]
 
   file.remove(temp_name)
@@ -175,7 +166,7 @@ if (nrow(master_dt) > 0) {
 
     user_profiles <- master_dt[, .(
       Freq_Total = .N,
-      Freq_Per_Month = round(.N / 3, 2), # สมมติว่าเก็บข้อมูล 3 เดือน
+      Freq_Per_Month = round(.N / 3, 2), # ข้อมูล 3 เดือน
       Avg_Travel_Time = if(all(is.na(travel_duration))) NA_real_ else round(mean(travel_duration[travel_duration > 0 & travel_duration < 120], na.rm = TRUE), 2),
       ETC_Rate = round((sum(is_etc, na.rm=TRUE) / .N) * 100, 2),
       Peak_Usage_Rate = round((sum(is_peak, na.rm=TRUE) / .N) * 100, 2),
@@ -202,7 +193,7 @@ if (nrow(master_dt) > 0) {
       name = "FINAL_ALPR_Profiles_SPSS.csv",
       overwrite = TRUE
     )
-    cat("🎉 อัปโหลดสำเร็จ! ไฟล์ FINAL_ALPR_Profiles_SPSS.csv พร้อมใช้งานใน Drive แล้วครับ\n")
+    cat("🎉 อัปโหลดสำเร็จ! ไฟล์ FINAL_ALPR_Profiles_SPSS.csv พร้อมใช้งานใน Drive \n")
 
 } else {
     print("❌ ไม่พบข้อมูลที่ผ่านการกรอง")
